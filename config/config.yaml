@@ -1,0 +1,28 @@
+# Customer Behavior Tracking System Configuration
+
+data_collection:
+  simulation:
+    num_customers: 1000
+    days_to_simulate: 30
+    touchpoints:
+      - website
+      - mobile_app
+      - email
+      - social_media
+      - store_visit
+      - customer_service
+    
+  output_path: "data/raw/"
+
+database:
+  bigquery:
+    project_id: "your-project-id"
+    dataset_id: "customer_behavior"
+    
+touchpoint_weights:
+  website: 0.4
+  mobile_app: 0.3
+  email: 0.15
+  social_media: 0.1
+  store_visit: 0.03
+  customer_service: 0.02
