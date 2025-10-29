@@ -62,9 +62,9 @@ def get_config():
         st.error(f"Error loading configuration: {e}")
         return None
 
-@st.cache_data
+@st.cache_resource
 def get_bigquery_client():
-    """Initialize BigQuery client with proper credentials"""
+    """Initialize BigQuery client with proper credentials - using cache_resource for client objects"""
     try:
         config = get_config()
         if not config:
@@ -80,6 +80,15 @@ def get_bigquery_client():
             os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
         
         client = bigquery.Client(project=project_id)
+        
+        # Test the connection
+        try:
+            list(client.list_datasets(max_results=1))
+            st.success(f"✅ Connected to BigQuery project: {project_id}")
+        except Exception as e:
+            st.error(f"❌ BigQuery connection test failed: {e}")
+            return None, None
+        
         return client, project_id
     except Exception as e:
         st.error(f"Error initializing BigQuery client: {e}")
@@ -87,10 +96,10 @@ def get_bigquery_client():
 
 @st.cache_data
 def load_data_from_bigquery():
-    """Load data from BigQuery with caching"""
+    """Load data from BigQuery with caching - using cache_data for data"""
     try:
         client, project_id = get_bigquery_client()
-        if not client:
+        if not client or not project_id:
             raise Exception("BigQuery client not initialized")
         
         dataset_id = "customer_behavior"
@@ -139,25 +148,32 @@ def load_data_from_bigquery():
         data = {}
         for name, query in queries.items():
             try:
-                data[name] = client.query(query).to_dataframe()
+                st.info(f"Loading {name}...")
+                result = client.query(query)
+                data[name] = result.to_dataframe()
+                st.success(f"✅ Loaded {name}: {len(data[name])} rows")
             except Exception as e:
-                st.warning(f"Error loading {name}: {e}")
+                st.warning(f"⚠️ Error loading {name}: {e}")
                 data[name] = pd.DataFrame()
+        
+        if all(df.empty for df in data.values()):
+            st.error("❌ No data loaded from any table")
+            return {}
         
         return data
     except Exception as e:
-        st.error(f"Error loading data from BigQuery: {e}")
+        st.error(f"❌ Error loading data from BigQuery: {e}")
         return {}
 
 # Load AI insights system
 @st.cache_resource
 def load_ai_insights():
-    """Load AI insights system"""
+    """Load AI insights system - using cache_resource for AI system objects"""
     try:
         from rag_system.local_insights_ai import LocalCustomerInsightsAI
         return LocalCustomerInsightsAI()
     except Exception as e:
-        st.warning(f"AI insights not available: {e}")
+        st.warning(f"⚠️ AI insights not available: {e}")
         return None
 
 def show_ai_insights(ai_system):
@@ -223,10 +239,11 @@ def main():
     with st.spinner("Loading data from BigQuery..."):
         try:
             data = load_data_from_bigquery()
-            if data:
+            if data and any(not df.empty for df in data.values()):
                 st.success("✅ Data loaded successfully!")
             else:
-                st.error("❌ No data loaded")
+                st.error("❌ No data loaded - check your BigQuery connection and data")
+                st.info("💡 Make sure your BigQuery tables contain data. Run the data pipeline first if needed.")
                 st.stop()
         except Exception as e:
             st.error(f"❌ Error loading data: {e}")
@@ -266,7 +283,7 @@ def show_overview(data):
     st.header("📈 Overview Dashboard")
     
     # Key metrics
-    if not data['overview_metrics'].empty:
+    if 'overview_metrics' in data and not data['overview_metrics'].empty:
         metrics = data['overview_metrics'].iloc[0]
         
         col1, col2, col3, col4 = st.columns(4)
@@ -282,12 +299,14 @@ def show_overview(data):
         
         with col4:
             st.metric("Avg Customer Value", f"${metrics['avg_customer_value']:.2f}")
+    else:
+        st.warning("⚠️ Overview metrics not available")
     
     # Charts
     col1, col2 = st.columns(2)
     
     with col1:
-        if not data['touchpoint_analysis'].empty:
+        if 'touchpoint_analysis' in data and not data['touchpoint_analysis'].empty:
             st.subheader("Revenue by Touchpoint")
             fig = px.bar(
                 data['touchpoint_analysis'],
@@ -298,9 +317,11 @@ def show_overview(data):
                 color_continuous_scale='viridis'
             )
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("⚠️ Touchpoint analysis data not available")
     
     with col2:
-        if not data['customer_segments_summary'].empty:
+        if 'customer_segments_summary' in data and not data['customer_segments_summary'].empty:
             st.subheader("Customer Segment Distribution")
             fig = px.pie(
                 data['customer_segments_summary'],
@@ -309,11 +330,13 @@ def show_overview(data):
                 title="Customer Segments"
             )
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("⚠️ Customer segments data not available")
 
 def show_touchpoint_analysis(data):
     st.header("🎯 Touchpoint Performance Analysis")
     
-    if not data['touchpoint_analysis'].empty:
+    if 'touchpoint_analysis' in data and not data['touchpoint_analysis'].empty:
         touchpoint_data = data['touchpoint_analysis']
         
         # Metrics table
@@ -346,11 +369,13 @@ def show_touchpoint_analysis(data):
                 title="Revenue vs Interactions (Size = Unique Customers)"
             )
             st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("⚠️ Touchpoint analysis data not available")
 
 def show_customer_segments(data):
     st.header("👥 Customer Segmentation Analysis")
     
-    if not data['customer_segments_summary'].empty:
+    if 'customer_segments_summary' in data and not data['customer_segments_summary'].empty:
         segments_data = data['customer_segments_summary']
         
         # Display the data
@@ -383,11 +408,13 @@ def show_customer_segments(data):
                 color_continuous_scale='greens'
             )
             st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("⚠️ Customer segments data not available")
 
 def show_journey_analysis(data):
     st.header("🛤️ Customer Journey Analysis")
     
-    if not data['journey_summary'].empty:
+    if 'journey_summary' in data and not data['journey_summary'].empty:
         journey_data = data['journey_summary']
         
         st.subheader("Top Journey Paths")
@@ -404,11 +431,13 @@ def show_journey_analysis(data):
             title="Journey Duration vs Revenue (Size = Journey Count)"
         )
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("⚠️ Journey analysis data not available")
 
 def show_time_trends(data):
     st.header("📅 Time Series Analysis")
     
-    if not data['time_series_data'].empty:
+    if 'time_series_data' in data and not data['time_series_data'].empty:
         time_data = data['time_series_data']
         time_data['date'] = pd.to_datetime(time_data['date'])
         
@@ -452,6 +481,10 @@ def show_time_trends(data):
             
             fig.update_layout(title="Daily Interactions by Touchpoint")
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("💡 Touchpoint trend data not available")
+    else:
+        st.warning("⚠️ Time series data not available")
 
 if __name__ == "__main__":
     main()
