@@ -2,6 +2,8 @@
 
 A comprehensive real-time customer behavior tracking system with AI-powered insights and external data integration.
 
+LIVE DEMO: https://customer-behavior-analytics.streamlit.app/
+
 ## 🚀 Features
 
 - **Real-time Data Streaming** - Live customer interaction tracking
