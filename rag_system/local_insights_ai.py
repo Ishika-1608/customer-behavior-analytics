@@ -2,17 +2,34 @@ import os
 import pandas as pd
 import json
 from typing import Dict, Any
+import sys
+
+# Handle different execution contexts
+try:
+    # Try to get the project root dynamically
+    if __file__:
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    else:
+        project_root = os.getcwd()
+except:
+    project_root = os.getcwd()
 
 class LocalCustomerInsightsAI:
     def __init__(self):
-        # Load customer data
+        # Load customer data with flexible path handling
         self.load_customer_data()
         self.create_data_summary()
         self.create_insight_templates()
     
     def load_customer_data(self):
         """Load processed customer data from CSV files"""
-        data_path = "data/processed/"
+        # Try multiple possible data paths
+        possible_paths = [
+            "data/processed/",
+            "../data/processed/",
+            os.path.join(project_root, "data/processed/"),
+            "./data/processed/"
+        ]
         
         self.data = {}
         files_to_load = {
@@ -22,20 +39,98 @@ class LocalCustomerInsightsAI:
             'time_series': 'time_series_data_clean.csv'
         }
         
+        data_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                data_path = path
+                break
+        
+        if not data_path:
+            print("⚠️ Warning: No data directory found. Using mock data for AI insights.")
+            self._create_mock_data()
+            return
+        
         for key, filename in files_to_load.items():
             filepath = os.path.join(data_path, filename)
             if os.path.exists(filepath):
-                self.data[key] = pd.read_csv(filepath)
-                print(f"✅ Loaded {key}: {len(self.data[key])} rows")
-            else:
-                # Try without _clean suffix
-                alt_filepath = os.path.join(data_path, filename.replace('_clean', ''))
-                if os.path.exists(alt_filepath):
-                    self.data[key] = pd.read_csv(alt_filepath)
+                try:
+                    self.data[key] = pd.read_csv(filepath)
                     print(f"✅ Loaded {key}: {len(self.data[key])} rows")
-                else:
-                    print(f"⚠️ Warning: {filename} not found")
-                    self.data[key] = pd.DataFrame()
+                except Exception as e:
+                    print(f"⚠️ Error loading {filename}: {e}")
+                    # Try without _clean suffix
+                    alt_filepath = os.path.join(data_path, filename.replace('_clean', ''))
+                    if os.path.exists(alt_filepath):
+                        try:
+                            self.data[key] = pd.read_csv(alt_filepath)
+                            print(f"✅ Loaded {key}: {len(self.data[key])} rows")
+                        except Exception as e2:
+                            print(f"⚠️ Error loading {alt_filepath}: {e2}")
+                            self.data[key] = pd.DataFrame()
+                    else:
+                        self.data[key] = pd.DataFrame()
+            else:
+                print(f"⚠️ Warning: {filepath} not found")
+                self.data[key] = pd.DataFrame()
+    
+    def _create_mock_data(self):
+        """Create mock data when real data is not available"""
+        import random
+        
+        # Mock touchpoint analysis
+        touchpoints = ['website', 'mobile_app', 'email', 'social_media', 'store_visit']
+        self.data['touchpoint_analysis'] = pd.DataFrame([
+            {
+                'touchpoint': tp,
+                'total_revenue': round(random.uniform(1000, 5000), 2),
+                'total_interactions': random.randint(100, 1000),
+                'conversion_rate': round(random.uniform(2, 15), 1),
+                'unique_customers': random.randint(50, 500)
+            }
+            for tp in touchpoints
+        ])
+        
+        # Mock customer segments
+        segments = ['Premium', 'Standard', 'Basic']
+        self.data['customer_segments'] = pd.DataFrame([
+            {
+                'customer_id': f'CUST_{i:06d}',
+                'customer_segment': random.choice(segments),
+                'total_revenue': round(random.uniform(50, 500), 2),
+                'total_interactions': random.randint(1, 20),
+                'unique_touchpoints_used': random.randint(1, 5)
+            }
+            for i in range(100)
+        ])
+        
+        # Mock journey data
+        self.data['customer_journeys'] = pd.DataFrame([
+            {
+                'customer_id': f'CUST_{i:06d}',
+                'total_interactions': random.randint(1, 10),
+                'journey_duration_days': random.randint(1, 30),
+                'conversion_occurred': random.choice([True, False]),
+                'first_touchpoint': random.choice(touchpoints),
+                'last_touchpoint': random.choice(touchpoints)
+            }
+            for i in range(100)
+        ])
+        
+        # Mock time series
+        from datetime import datetime, timedelta
+        dates = [datetime.now() - timedelta(days=i) for i in range(30)]
+        self.data['time_series'] = pd.DataFrame([
+            {
+                'date': date.strftime('%Y-%m-%d'),
+                'daily_revenue': round(random.uniform(100, 1000), 2),
+                'daily_interactions': random.randint(10, 100)
+            }
+            for date in dates
+        ])
+        
+        print("✅ Created mock data for AI insights")
+
+    # ... rest of your existing methods remain the same ...
     
     def create_data_summary(self):
         """Create a comprehensive data summary"""
@@ -62,8 +157,8 @@ class LocalCustomerInsightsAI:
             
             summary['segments'] = {
                 'summary_table': segment_summary,
-                'best_segment': segment_summary.loc[segment_summary[('total_revenue', 'sum')].idxmax()],
-                'most_customers': segment_summary.loc[segment_summary[('total_revenue', 'count')].idxmax()]
+                'best_segment': segment_summary.loc[segment_summary[('total_revenue', 'sum')].idxmax()] if not segment_summary.empty else None,
+                'most_customers': segment_summary.loc[segment_summary[('total_revenue', 'count')].idxmax()] if not segment_summary.empty else None
             }
         
         # Journey Analysis Summary
@@ -75,7 +170,7 @@ class LocalCustomerInsightsAI:
                 'conversion_rate': journey_data['conversion_occurred'].sum() / len(journey_data) * 100,
                 'top_first_touchpoints': journey_data['first_touchpoint'].value_counts().head(3),
                 'top_last_touchpoints': journey_data['last_touchpoint'].value_counts().head(3),
-                'high_value_journeys': journey_data[journey_data['total_revenue'] > journey_data['total_revenue'].quantile(0.8)]
+                'high_value_journeys': journey_data[journey_data['total_revenue'] > journey_data['total_revenue'].quantile(0.8)] if 'total_revenue' in journey_data.columns else pd.DataFrame()
             }
         
         # Time Series Summary
@@ -119,7 +214,7 @@ class LocalCustomerInsightsAI:
         
         **Highest Conversion Rate:** {best_conversion['touchpoint']}
         - Conversion Rate: {best_conversion['conversion_rate']:.1f}%
-        - Revenue per Interaction: ${best_conversion['avg_revenue_per_interaction']:.2f}
+        - Revenue per Interaction: ${best_conversion.get('avg_revenue_per_interaction', 0):.2f}
         
         **Key Insights:**
         - {best_revenue['touchpoint']} is your revenue powerhouse
@@ -131,7 +226,7 @@ class LocalCustomerInsightsAI:
     
     def _analyze_customer_segments(self):
         """Analyze customer segments"""
-        if 'segments' not in self.summary:
+        if 'segments' not in self.summary or self.summary['segments']['best_segment'] is None:
             return "No customer segment data available."
         
         best_segment = self.summary['segments']['best_segment']
@@ -160,8 +255,8 @@ class LocalCustomerInsightsAI:
             return "No journey data available."
         
         journeys = self.summary['journeys']
-        top_first = journeys['top_first_touchpoints'].index[0]
-        top_last = journeys['top_last_touchpoints'].index[0]
+        top_first = journeys['top_first_touchpoints'].index[0] if not journeys['top_first_touchpoints'].empty else "Unknown"
+        top_last = journeys['top_last_touchpoints'].index[0] if not journeys['top_last_touchpoints'].empty else "Unknown"
         
         analysis = f"""
         🛤️ **Customer Journey Analysis:**
@@ -172,13 +267,13 @@ class LocalCustomerInsightsAI:
         - Overall Conversion Rate: {journeys['conversion_rate']:.1f}%
         
         **Common Journey Patterns:**
-        - Most Common First Touchpoint: {top_first} ({journeys['top_first_touchpoints'].iloc[0]} customers)
-        - Most Common Last Touchpoint: {top_last} ({journeys['top_last_touchpoints'].iloc[0]} customers)
+        - Most Common First Touchpoint: {top_first} ({journeys['top_first_touchpoints'].iloc[0] if not journeys['top_first_touchpoints'].empty else 0} customers)
+        - Most Common Last Touchpoint: {top_last} ({journeys['top_last_touchpoints'].iloc[0] if not journeys['top_last_touchpoints'].empty else 0} customers)
         
         **Optimization Opportunities:**
         - Optimize the {top_first} → {top_last} journey path
         - Reduce average journey duration to improve conversion speed
-        - Focus on converting more {journeys['conversion_rate']:.1f}% of journeys
+        - Focus on converting more of the {journeys['conversion_rate']:.1f}% of journeys
         """
         
         return analysis
@@ -202,7 +297,7 @@ class LocalCustomerInsightsAI:
         **Peak Performance:**
         - Best Day: {peak_day['date']}
         - Peak Revenue: ${peak_day['daily_revenue']:,.2f}
-        - Peak Interactions: {peak_day['daily_interactions']:,}
+        - Peak Interactions: {peak_day.get('daily_interactions', 0):,}
         
         **Strategic Insights:**
         - Revenue is trending {trends['trend']}
