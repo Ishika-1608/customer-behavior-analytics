@@ -3,21 +3,28 @@ from google.cloud import bigquery
 from google.cloud.exceptions import NotFound
 import os
 import json
+import streamlit as st
 from typing import Dict, List, Optional
 from datetime import datetime
+import tempfile
 
 class BigQueryManager:
-    def __init__(self, project_id: str, dataset_id: str = "customer_behavior", 
-                 credentials_path: str = None):
-        self.project_id = project_id
-        self.dataset_id = dataset_id
+    def __init__(self, project_id: str = None, credentials_path: str = None):
+        if hasattr(st, 'secrets'):
+            self.project_id = project_id or st.secrets["GCP_PROJECT_ID"]
+            self.dataset_id = st.secrets.get("BQ_DATASET_ID", "customer_behavior")
+            credentials_path = get_credentials()
+        else:
+            self.project_id = project_id or os.getenv('GCP_PROJECT_ID')
+            self.dataset_id = os.getenv('BQ_DATASET_ID', 'customer_behavior')
+            credentials_path = credentials_path or os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
         
         # Set up credentials
         if credentials_path:
             os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
         
-        self.client = bigquery.Client(project=project_id)
-        self.dataset_ref = self.client.dataset(dataset_id)
+        self.client = bigquery.Client(project=self.project_id)
+        self.dataset_ref = self.client.dataset(self.dataset_id)
         
     def create_dataset(self) -> None:
         """Create BigQuery dataset if it doesn't exist"""
@@ -32,6 +39,20 @@ class BigQueryManager:
             dataset = self.client.create_dataset(dataset, timeout=30)
             print(f"Created dataset {self.dataset_id}")
     
+    def get_credentials():
+        """Get credentials from Streamlit secrets or environment"""
+        if hasattr(st, 'secrets'):
+            # Running in Streamlit Cloud
+            credentials_dict = dict(st.secrets["GOOGLE_APPLICATION_CREDENTIALS"])
+            
+            # Create temporary file for credentials
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                json.dump(credentials_dict, f)
+                return f.name
+        else:
+            # Running locally
+            return os.getenv('GOOGLE_APPLICATION_CREDENTIALS', 'service-account-key.json')
+        
     def get_table_schema(self, table_name: str) -> List[bigquery.SchemaField]:
         """Define schemas for different tables"""
         schemas = {
